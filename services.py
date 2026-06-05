@@ -42,9 +42,11 @@ FETCH_COOLDOWN = 30
 _market_index_cache = {}
 _MARKET_INDEX_CACHE_TTL = 300
 _HISTORICAL_CACHE_TTL = 1800
+_ANALYTICS_CACHE_TTL = 300
 _finnhub_blocked_endpoints = set()
 _yfinance_blocked_until = 0
 _stooq_blocked_until = 0
+_analytics_cache = {}
 
 _PERIOD_DAYS = {
     "5d": 7,
@@ -111,6 +113,17 @@ def _set_cached(symbol, data, is_error=False):
         "ts": time.time(),
         "ttl": 120 if is_error else 300,
     }
+
+
+def _get_analytics_cached(key):
+    entry = _analytics_cache.get(key)
+    if entry and time.time() - entry["ts"] < entry.get("ttl", _ANALYTICS_CACHE_TTL):
+        return entry["data"]
+    return None
+
+
+def _set_analytics_cached(key, data, ttl=_ANALYTICS_CACHE_TTL):
+    _analytics_cache[key] = {"data": data, "ts": time.time(), "ttl": ttl}
 
 
 def _finnhub_get(endpoint, params=None):
@@ -553,8 +566,8 @@ async def _fetch_batch(symbols):
     return results
 
 
-async def _fetch_symbol_fallback(symbol):
-    await asyncio.sleep(0.1)
+def _fetch_symbol_fallback_sync(symbol):
+    symbol = symbol.upper()
     try:
         quote = _finnhub_quote(symbol)
         if not quote or quote.get('currentPrice', 0) == 0:
@@ -582,6 +595,10 @@ async def _fetch_symbol_fallback(symbol):
         print(f'[services] Fallback fetch error for {symbol}: {e}')
         _set_cached(symbol, None, is_error=True)
         return None
+
+
+async def _fetch_symbol_fallback(symbol):
+    return await asyncio.to_thread(_fetch_symbol_fallback_sync, symbol)
 
 
 async def get_stock_data(symbol):
@@ -636,7 +653,9 @@ async def get_market_indices():
         'IXIC': '^IXIC',
         'VIX': '^VIX',
     }
-    for key, ticker_sym in index_map.items():
+
+    def fetch_index(item):
+        key, ticker_sym = item
         try:
             quote = _finnhub_quote(ticker_sym)
             if quote and quote.get("currentPrice"):
@@ -644,13 +663,26 @@ async def get_market_indices():
                 prev = quote.get("previousClose") or current
                 change = quote.get("priceChange", current - prev)
                 change_pct = quote.get("priceChangePercent", (change / prev * 100) if prev > 0 else 0)
-                result[key] = {
+                return key, {
                     'price': round(current, 2),
                     'change': round(change, 2),
                     'changePercent': round(change_pct, 2),
                 }
         except Exception:
             pass
+        return key, None
+
+    fetched = await asyncio.gather(
+        *(asyncio.to_thread(fetch_index, item) for item in index_map.items()),
+        return_exceptions=True,
+    )
+    for item in fetched:
+        if isinstance(item, Exception):
+            continue
+        key, value = item
+        if value:
+            result[key] = value
+
     if not result:
         result = {
             'GSPC': {'price': 5800.0, 'change': 45.2, 'changePercent': 0.78},
@@ -1071,79 +1103,115 @@ def _dividend_from_metrics(metrics, current_price):
 
 
 async def compute_volatility(symbols):
-    results = []
-    for symbol in symbols:
+    symbols = sorted({s.upper() for s in symbols if s})
+    cache_key = ("volatility", tuple(symbols), _current_finnhub_api_key.get() or FINNHUB_API_KEY)
+    cached = _get_analytics_cached(cache_key)
+    if cached is not None:
+        return cached
+
+    def calc_symbol(symbol):
         try:
-            await asyncio.sleep(0.3)
             candles = _finnhub_candles(symbol, period='3mo')
             if len(candles) < 30:
-                continue
+                return None
             highs = [c["high"] for c in candles]
             lows = [c["low"] for c in candles]
             closes = [c["close"] for c in candles]
             returns = [(closes[i] / closes[i - 1]) - 1 for i in range(1, len(closes)) if closes[i - 1] > 0]
             if len(returns) < 10:
-                continue
+                return None
             mean_ret = sum(returns) / len(returns)
             pct_std = math.sqrt(sum((r - mean_ret) ** 2 for r in returns) / (len(returns) - 1))
             if not math.isfinite(pct_std) or pct_std <= 0:
-                continue
+                return None
             ann_vol = float(round(pct_std * (252 ** 0.5) * 100, 2))
             atr_vals = _atr(highs, lows, closes, 14)
             latest_atr = float(atr_vals[-1]) if atr_vals else None
             bracket = 'Low' if ann_vol < 20 else ('Moderate' if ann_vol < 40 else 'High')
-            results.append({
+            return {
                 'symbol': symbol.upper(),
                 'annualized_volatility': ann_vol,
                 'atr_14': latest_atr,
                 'volatility_bracket': bracket,
-            })
+            }
         except Exception as e:
             print(f'[services] volatility scan {symbol} error: {e}')
-            continue
+            return None
+
+    semaphore = asyncio.Semaphore(4)
+
+    async def limited_calc(symbol):
+        async with semaphore:
+            return await asyncio.to_thread(calc_symbol, symbol)
+
+    scanned = await asyncio.gather(*(limited_calc(symbol) for symbol in symbols), return_exceptions=True)
+    results = [item for item in scanned if isinstance(item, dict)]
     results.sort(key=lambda x: x['annualized_volatility'], reverse=True)
-    return {'volatility': results}
+    response = {'volatility': results}
+    _set_analytics_cached(cache_key, response)
+    return response
 
 
 async def compute_dividends(holdings):
-    results = []
-    total_forecast = 0
-    for h in holdings:
+    holdings_key = tuple(sorted(
+        (
+            str(h.get('symbol', '')).upper(),
+            round(float(h.get('quantity') or 0), 6),
+            round(float(h.get('avg_cost') or 0), 6),
+        )
+        for h in holdings
+    ))
+    cache_key = ("dividends", holdings_key, _current_finnhub_api_key.get() or FINNHUB_API_KEY)
+    cached = _get_analytics_cached(cache_key)
+    if cached is not None:
+        return cached
+
+    def calc_holding(h):
         symbol = h['symbol']
         try:
-            await asyncio.sleep(_REQUEST_DELAY)
-            stock = await get_stock_data(symbol)
+            stock = _get_cached(symbol.upper()) or _fetch_symbol_fallback_sync(symbol)
             metrics = get_company_metrics(symbol)
             current_price = (stock or {}).get('currentPrice') or h.get('avg_cost', 0)
             div_yield_percent, annual_div_per_share = _dividend_from_metrics(metrics, current_price)
             if annual_div_per_share is not None:
                 annual_income = round(annual_div_per_share * h.get('quantity', 0), 2)
-                results.append({
+                return {
                     'symbol': symbol.upper(),
                     'dividend_yield': div_yield_percent,
                     'annual_div_per_share': round(annual_div_per_share, 2),
                     'annual_income': annual_income,
                     'quantity': h.get('quantity', 0),
-                })
-                total_forecast += annual_income
-            else:
-                results.append({
-                    'symbol': symbol.upper(),
-                    'dividend_yield': None,
-                    'annual_div_per_share': None,
-                    'annual_income': 0,
-                    'quantity': h.get('quantity', 0),
-                })
-        except Exception as e:
-            print(f'[services] dividend calc {symbol} error: {e}')
-            results.append({
+                }
+            return {
                 'symbol': symbol.upper(),
                 'dividend_yield': None,
                 'annual_div_per_share': None,
                 'annual_income': 0,
                 'quantity': h.get('quantity', 0),
-            })
-    return {'dividends': results, 'total_annual_forecast': round(total_forecast, 2)}
+            }
+        except Exception as e:
+            print(f'[services] dividend calc {symbol} error: {e}')
+            return {
+                'symbol': symbol.upper(),
+                'dividend_yield': None,
+                'annual_div_per_share': None,
+                'annual_income': 0,
+                'quantity': h.get('quantity', 0),
+            }
+
+    semaphore = asyncio.Semaphore(4)
+
+    async def limited_calc(holding):
+        async with semaphore:
+            return await asyncio.to_thread(calc_holding, holding)
+
+    scanned = await asyncio.gather(*(limited_calc(h) for h in holdings), return_exceptions=True)
+    results = [item for item in scanned if isinstance(item, dict)]
+    results.sort(key=lambda x: x['symbol'])
+    total_forecast = sum(item.get('annual_income') or 0 for item in results)
+    response = {'dividends': results, 'total_annual_forecast': round(total_forecast, 2)}
+    _set_analytics_cached(cache_key, response)
+    return response
 
 
 async def export_portfolio_csv(holdings):
