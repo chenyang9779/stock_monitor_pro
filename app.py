@@ -719,19 +719,39 @@ async def search_stocks(query: str = Query(..., min_length=1)):
 
 @app.get('/api/stocks/details/{symbol}')
 async def get_stock_details(symbol: str):
-    data = await get_stock_data(symbol.upper())
+    upper = symbol.upper()
+    data = await get_stock_data(upper)
     if not data:
-        upper = symbol.upper()
-        hint = ''
-        # Common typo hints
-        typo_map = {'APPL': 'AAPL', 'AMZN': 'AMZN', 'TSLA': 'TSLA', 'NVDA': 'NVDA', 'META': 'META'}
-        if upper in typo_map:
-            hint = f' Did you mean {typo_map[upper]}?'
-        raise HTTPException(status_code=404, detail=f'Stock {upper} not found. Check the symbol.{hint}')
-    profile = get_company_profile(symbol.upper())
-    metrics = get_company_metrics(symbol.upper())
+        hist = await get_historical_data(upper, '5d')
+        if hist:
+            latest = hist[-1]
+            previous = hist[-2] if len(hist) > 1 else latest
+            current = latest.get('close') or 0
+            prev_close = previous.get('close') or current
+            change = current - prev_close
+            data = {
+                'symbol': upper,
+                'name': upper,
+                'currentPrice': current,
+                'previousClose': prev_close,
+                'open': latest.get('open') or current,
+                'dayHigh': latest.get('high') or current,
+                'dayLow': latest.get('low') or current,
+                'volume': latest.get('volume'),
+                'priceChange': change,
+                'priceChangePercent': (change / prev_close * 100) if prev_close else 0,
+            }
+        else:
+            hint = ''
+            # Common typo hints
+            typo_map = {'APPL': 'AAPL', 'AMZN': 'AMZN', 'TSLA': 'TSLA', 'NVDA': 'NVDA', 'META': 'META'}
+            if upper in typo_map:
+                hint = f' Did you mean {typo_map[upper]}?'
+            raise HTTPException(status_code=404, detail=f'Stock {upper} not found. Check the symbol.{hint}')
+    profile = get_company_profile(upper)
+    metrics = get_company_metrics(upper)
     data.update({
-        'sector': profile.get('sector') or get_sector(symbol.upper(), profile),
+        'sector': profile.get('sector') or get_sector(upper, profile),
         'industry': profile.get('industry'),
         'peRatio': metrics.get('peNormalizedAnnual') or metrics.get('peBasicExclExtraTTM'),
         'fiftyTwoWeekLow': metrics.get('52WeekLow'),
@@ -742,7 +762,7 @@ async def get_stock_details(symbol: str):
     })
     # Add historicPrice for mini charts
     try:
-        hist = await get_historical_data(symbol.upper(), '1mo')
+        hist = await get_historical_data(upper, '1mo')
         data['historicPrice'] = hist if hist else []
     except Exception:
         data['historicPrice'] = []

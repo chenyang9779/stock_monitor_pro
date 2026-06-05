@@ -190,6 +190,37 @@ def _finnhub_quote(symbol):
     }
 
 
+def _quote_from_recent_history(symbol):
+    """Build a basic quote from recent Yahoo/Stooq/yfinance candles when live quote is unavailable."""
+    symbol = symbol.upper()
+    candles = _history_from_yahoo_chart(symbol, "5d")
+    if not candles:
+        candles = _history_from_stooq(symbol, "5d")
+    if not candles:
+        candles = _history_from_yfinance(symbol, "5d")
+    if not candles:
+        return None
+
+    latest = candles[-1]
+    previous = candles[-2] if len(candles) > 1 else latest
+    current = float(latest.get("close") or 0)
+    prev_close = float(previous.get("close") or current or 0)
+    if current <= 0:
+        return None
+    change = current - prev_close
+    change_pct = (change / prev_close * 100) if prev_close > 0 else 0
+    return {
+        'currentPrice': current,
+        'previousClose': prev_close,
+        'open': float(latest.get("open") or current),
+        'dayHigh': float(latest.get("high") or current),
+        'dayLow': float(latest.get("low") or current),
+        'volume': int(latest.get("volume") or 0),
+        'priceChange': change,
+        'priceChangePercent': change_pct,
+    }
+
+
 def _finnhub_profile(symbol):
     data = _finnhub_get("profile2", {"symbol": symbol})
     if not data:
@@ -579,6 +610,11 @@ def _fetch_symbol_fallback_sync(symbol):
     try:
         quote = _finnhub_quote(symbol)
         if not quote or quote.get('currentPrice', 0) == 0:
+            quote = _quote_from_recent_history(symbol)
+        if not quote or quote.get('currentPrice', 0) == 0:
+            fallback = _get_cached(f"{symbol}_last_good")
+            if fallback:
+                return fallback
             _set_cached(symbol, None, is_error=True)
             return None
         profile = _finnhub_profile(symbol)
@@ -593,11 +629,12 @@ def _fetch_symbol_fallback_sync(symbol):
             'dayHigh': quote.get('dayHigh') or current_price,
             'dayLow': quote.get('dayLow') or current_price,
             'marketCap': profile.get('marketCap') if profile else None,
-            'volume': None,
+            'volume': quote.get('volume'),
             'priceChange': quote.get('priceChange', 0),
             'priceChangePercent': quote.get('priceChangePercent', 0),
         }
         _set_cached(symbol, result)
+        _set_cached(f"{symbol}_last_good", result)
         return result
     except Exception as e:
         print(f'[services] Fallback fetch error for {symbol}: {e}')
