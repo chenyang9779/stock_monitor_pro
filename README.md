@@ -60,17 +60,14 @@ http://127.0.0.1:8000
 
 ## Run With Docker
 
-Build the image:
+The Docker setup starts with a brand-new database by default. Local files such as
+`stocks.db` and `stock_cache.sqlite` are ignored by Docker and are not copied into
+the image.
+
+Start with Docker Compose:
 
 ```powershell
-docker build -t stock-monitor-pro .
-```
-
-Run with a named volume so `stocks.db` persists across container restarts:
-
-```powershell
-docker volume create stock-monitor-data
-docker run --rm -p 8000:8000 -v stock-monitor-data:/app stock-monitor-pro
+docker compose up --build
 ```
 
 Open:
@@ -79,10 +76,43 @@ Open:
 http://127.0.0.1:8000
 ```
 
-Alternative bind mount for the database file only:
+Docker Compose stores container data in the named volume:
+
+```text
+stock-monitor-data
+```
+
+Inside the container, all writable database/cache files are bound under:
+
+```text
+/data
+```
+
+Files created there include:
+
+```text
+/data/stocks.db
+/data/stock_cache.sqlite
+```
+
+To reset the Docker deployment back to a brand-new database:
 
 ```powershell
-docker run --rm -p 8000:8000 -v ${PWD}\stocks.db:/app/stocks.db stock-monitor-pro
+docker compose down -v
+docker compose up --build
+```
+
+Manual Docker build:
+
+```powershell
+docker build -t stock-monitor-pro .
+```
+
+Manual Docker run with a named volume:
+
+```powershell
+docker volume create stock-monitor-data
+docker run --rm -p 8000:8000 -e STOCK_MONITOR_DATA_DIR=/data -v stock-monitor-data:/data stock-monitor-pro
 ```
 
 The container runs database migrations automatically on startup.
@@ -214,4 +244,5 @@ static/js/app.js       Frontend app logic
 static/css/style.css   UI styles
 requirements.txt       Python dependencies
 stocks.db              Local SQLite database
+docker-compose.yml     Docker Compose deployment with persistent /data volume
 ```

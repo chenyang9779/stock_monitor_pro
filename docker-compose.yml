@@ -1,0 +1,16 @@
+services:
+  stock-monitor:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: stock-monitor
+    restart: unless-stopped
+    environment:
+      STOCK_MONITOR_DATA_DIR: /data
+    ports:
+      - "8000:8000"
+    volumes:
+      - stock-monitor-data:/data
+
+volumes:
+  stock-monitor-data:

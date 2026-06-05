@@ -4,7 +4,10 @@ import secrets
 import hashlib
 from pathlib import Path
 
-DB_PATH = Path(os.path.dirname(os.path.abspath(__file__))) / 'stocks.db'
+APP_DIR = Path(os.path.dirname(os.path.abspath(__file__)))
+DATA_DIR = Path(os.getenv("STOCK_MONITOR_DATA_DIR", APP_DIR))
+DATA_DIR.mkdir(parents=True, exist_ok=True)
+DB_PATH = DATA_DIR / 'stocks.db'
 
 def get_connection():
     conn = sqlite3.connect(DB_PATH)

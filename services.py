@@ -7,6 +7,7 @@ import math
 import warnings
 import contextvars
 from datetime import datetime, timedelta
+from pathlib import Path
 from typing import Optional, List, Dict
 import requests_cache
 import yfinance as yf
@@ -21,8 +22,12 @@ FINNHUB_BASE = "https://finnhub.io/api/v1"
 _current_finnhub_api_key = contextvars.ContextVar("current_finnhub_api_key", default="")
 
 # PERSISTENT CACHE
+APP_DIR = Path(os.path.dirname(os.path.abspath(__file__)))
+DATA_DIR = Path(os.getenv("STOCK_MONITOR_DATA_DIR", APP_DIR))
+DATA_DIR.mkdir(parents=True, exist_ok=True)
+
 requests_cache.install_cache(
-    cache_name="stock_cache",
+    cache_name=str(DATA_DIR / "stock_cache"),
     backend="sqlite",
     expire_after=300,
     allowable_methods=["GET"],
