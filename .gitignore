@@ -12,6 +12,10 @@ __pycache__/
 *.pyc
 *.pyo
 
+# Generated/debug scratch files
+*_lines.txt
+services_formatted.py
+
 # OS
 .DS_Store
 Thumbs.db
