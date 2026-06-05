@@ -6,6 +6,7 @@ import os
 import math
 import warnings
 import contextvars
+import threading
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Optional, List, Dict
@@ -47,6 +48,8 @@ _finnhub_blocked_endpoints = set()
 _yfinance_blocked_until = 0
 _stooq_blocked_until = 0
 _analytics_cache = {}
+_EXTERNAL_REQUEST_LOCK = threading.RLock()
+_YFINANCE_LOCK = threading.RLock()
 
 _PERIOD_DAYS = {
     "5d": 7,
@@ -139,7 +142,8 @@ def _finnhub_get(endpoint, params=None):
         params = {}
     params['token'] = api_key
     try:
-        resp = requests.get(url, params=params, timeout=10)
+        with _EXTERNAL_REQUEST_LOCK:
+            resp = requests.get(url, params=params, timeout=10)
         if resp.status_code == 200:
             text = resp.text.strip()
             if not text:
@@ -241,7 +245,8 @@ def _yfinance_info(symbol):
     if _is_yfinance_blocked():
         return {}
     try:
-        info = yf.Ticker(symbol).info or {}
+        with _YFINANCE_LOCK:
+            info = yf.Ticker(symbol).info or {}
         _set_cached(cache_key, info)
         return info
     except Exception as e:
@@ -304,8 +309,9 @@ def _history_from_yfinance(symbol, period="1mo"):
     periods = list(dict.fromkeys([period, "6mo", "3mo", "1mo", "5d"]))
     for yf_period in periods:
         try:
-            ticker = yf.Ticker(symbol)
-            hist = ticker.history(period=yf_period, timeout=8)
+            with _YFINANCE_LOCK:
+                ticker = yf.Ticker(symbol)
+                hist = ticker.history(period=yf_period, timeout=8)
             if hist is None or hist.empty:
                 continue
             candles = []
@@ -337,17 +343,18 @@ def _history_from_yahoo_chart(symbol, period="1mo"):
 
     start_ts, end_ts = _period_bounds(period)
     try:
-        response = requests.get(
-            f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}",
-            params={
-                "period1": start_ts,
-                "period2": end_ts,
-                "interval": "1d",
-                "events": "history",
-            },
-            headers={"User-Agent": "Mozilla/5.0"},
-            timeout=10,
-        )
+        with _EXTERNAL_REQUEST_LOCK:
+            response = requests.get(
+                f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}",
+                params={
+                    "period1": start_ts,
+                    "period2": end_ts,
+                    "interval": "1d",
+                    "events": "history",
+                },
+                headers={"User-Agent": "Mozilla/5.0"},
+                timeout=10,
+            )
         if response.status_code != 200:
             _set_cached(cache_key, [], is_error=True)
             return []
@@ -401,11 +408,12 @@ def _history_from_stooq(symbol, period="1mo"):
     candidates = [f"{stooq_symbol}.us", stooq_symbol]
     for candidate in candidates:
         try:
-            response = requests.get(
-                "https://stooq.com/q/d/l/",
-                params={"s": candidate, "d1": start, "d2": end, "i": "d"},
-                timeout=10,
-            )
+            with _EXTERNAL_REQUEST_LOCK:
+                response = requests.get(
+                    "https://stooq.com/q/d/l/",
+                    params={"s": candidate, "d1": start, "d2": end, "i": "d"},
+                    timeout=10,
+                )
             text = response.text.strip()
             lower_text = text.lower()
             if response.status_code != 200 or lower_text.startswith("no data"):
