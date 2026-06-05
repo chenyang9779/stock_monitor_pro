@@ -1,0 +1,584 @@
+﻿<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Stock Monitor Pro</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
+    <link rel="stylesheet" href="/static/css/style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+</head>
+<body>
+    <div class="app-container">
+        <!-- Sidebar -->
+        <aside class="sidebar">
+            <div class="logo">
+                <i class="fas fa-chart-line"></i>
+                <span>Stock Monitor Pro</span>
+            </div>
+            <nav class="nav-menu">
+                <a href="#" class="nav-item active" data-page="dashboard">
+                    <i class="fas fa-th-large"></i> Dashboard
+                </a>
+                <a href="#" class="nav-item" data-page="holdings">
+                    <i class="fas fa-briefcase"></i> My Holdings
+                </a>
+                <a href="#" class="nav-item" data-page="watchlist">
+                    <i class="fas fa-eye"></i> Watchlist
+                </a>
+                <a href="#" class="nav-item" data-page="alerts">
+                    <i class="fas fa-bell"></i> Alerts
+                </a>
+                <a href="#" class="nav-item" data-page="news">
+                    <i class="fas fa-newspaper"></i> News
+                </a>
+                <a href="#" class="nav-item" data-page="analysis">
+                    <i class="fas fa-chart-pie"></i> Analysis
+                </a>
+                <a href="#" class="nav-item" data-page="settings">
+                    <i class="fas fa-user-cog"></i> Settings
+                </a>
+            </nav>
+            <div class="sidebar-footer">
+                <button class="btn-refresh" onclick="refreshAll()">
+                    <i class="fas fa-sync-alt"></i> Refresh
+                </button>
+            </div>
+        </aside>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <!-- Top Bar -->
+            <header class="top-bar">
+                <div class="search-box">
+                    <i class="fas fa-search"></i>
+                    <input type="text" id="globalSearch" placeholder="Search stocks..." onkeyup="handleSearch(event)">
+                    <div id="searchResults" class="search-results"></div>
+                </div>
+                <div class="market-status">
+                    <span class="status-dot" id="statusDot"></span>
+                    <span id="marketStatus">Checking market...</span>
+                </div>
+                <div class="header-actions"><span id="refreshTimer" class="refresh-timer"></span>
+                    <span id="currentUserLabel" class="current-user"></span>
+                    <button class="btn-icon" onclick="toggleTheme()" title="Toggle theme">
+                        <i class="fas fa-moon" id="themeIcon"></i>
+                    </button>
+                    <button class="btn-icon" onclick="refreshAll()" title="Refresh data">
+                        <i class="fas fa-sync-alt"></i>
+                    </button>
+                    <button class="btn-icon" onclick="logout()" title="Logout">
+                        <i class="fas fa-sign-out-alt"></i>
+                    </button>
+                </div>
+            </header>
+
+            <!-- Dashboard Page -->
+            <div id="page-dashboard" class="page active">
+                <div class="page-header">
+                    <h1><i class="fas fa-th-large"></i> Dashboard</h1>
+                    <span class="last-updated" id="lastUpdated"></span>
+                </div>
+
+                <!-- Market Indices -->
+                <div class="indices-bar">
+                    <div class="index-item" id="index-GSPC">
+                        <span class="index-name">S&P 500</span>
+                        <span class="index-price">-</span>
+                        <span class="index-change">-</span>
+                    </div>
+                    <div class="index-item" id="index-DJI">
+                        <span class="index-name">Dow Jones</span>
+                        <span class="index-price">-</span>
+                        <span class="index-change">-</span>
+                    </div>
+                    <div class="index-item" id="index-IXIC">
+                        <span class="index-name">NASDAQ</span>
+                        <span class="index-price">-</span>
+                        <span class="index-change">-</span>
+                    </div>
+                    <div class="index-item" id="index-VIX">
+                        <span class="index-name">VIX</span>
+                        <span class="index-price">-</span>
+                        <span class="index-change">-</span>
+                    </div>
+                </div>
+
+                <!-- Summary Cards -->
+                <div class="summary-cards">
+                    <div class="card total-value">
+                        <div class="card-icon"><i class="fas fa-wallet"></i></div>
+                        <div class="card-info">
+                            <span class="card-label">Portfolio Value</span>
+                            <span class="card-value" id="totalValue">-</span>
+                        </div>
+                    </div>
+                    <div class="card total-cost">
+                        <div class="card-icon"><i class="fas fa-coins"></i></div>
+                        <div class="card-info">
+                            <span class="card-label">Total Cost</span>
+                            <span class="card-value" id="totalCost">-</span>
+                        </div>
+                    </div>
+                    <div class="card pnl-card" id="pnlCard">
+                        <div class="card-icon"><i class="fas fa-chart-line"></i></div>
+                        <div class="card-info">
+                            <span class="card-label">Total P&L</span>
+                            <span class="card-value" id="totalPnl">-</span>
+                            <span class="card-sub" id="totalPnlPercent">-0.00%</span>
+                        </div>
+                    </div>
+                    <div class="card holdings-count">
+                        <div class="card-icon"><i class="fas fa-layer-group"></i></div>
+                        <div class="card-info">
+                            <span class="card-label">Holdings</span>
+                            <span class="card-value" id="holdingsCount">0</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Main Chart -->
+                <div class="chart-container">
+                    <div class="chart-header">
+                        <h2><i class="fas fa-chart-area"></i> Portfolio Performance</h2>
+                    </div>
+                    <canvas id="portfolioChart" height="120"></canvas>
+                </div>
+
+                <!-- Holdings Table -->
+                <div class="section">
+                    <div class="section-header">
+                        <h2><i class="fas fa-briefcase"></i> Holdings</h2>
+                        <button class="btn btn-primary" onclick="showAddHoldingModal()">
+                            <i class="fas fa-plus"></i> Add Stock
+                        </button>
+                    </div>
+                    <div class="table-container">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>Symbol</th>
+                                    <th>Name</th>
+                                    <th>Qty</th>
+                                    <th>Avg Cost</th>
+                                    <th>Current Price</th>
+                                    <th>Market Value</th>
+                                    <th>P&L</th>
+                                    <th>P&L %</th>
+                                    <th>Chart</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="holdingsBody">
+                                <tr><td colspan="10" class="empty-state">No holdings yet. Add your first stock!</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- Top/Bottom Performers -->
+                <div class="two-columns">
+                    <div class="section">
+                        <h2><i class="fas fa-trophy"></i> Top Performer</h2>
+                        <div id="topPerformer" class="performer-card">-</div>
+                    </div>
+                    <div class="section">
+                        <h2><i class="fas fa-arrow-trend-down"></i> Worst Performer</h2>
+                        <div id="worstPerformer" class="performer-card">-</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Holdings Page -->
+            <div id="page-holdings" class="page">
+                <div class="page-header">
+                    <h1><i class="fas fa-briefcase"></i> My Holdings</h1>
+                    <button class="btn btn-primary" onclick="showAddHoldingModal()">
+                        <i class="fas fa-plus"></i> Add Stock
+                    </button>
+                </div>
+                <div class="table-container">
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>Symbol</th>
+                                <th>Name</th>
+                                <th>Qty</th>
+                                <th>Avg Cost</th>
+                                <th>Current Price</th>
+                                <th>Market Value</th>
+                                <th>P&L</th>
+                                <th>P&L %</th>
+                                <th>Chart</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="holdingsPageBody">
+                            <tr><td colspan="10" class="empty-state">No holdings yet.</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Watchlist Page -->
+            <div id="page-watchlist" class="page">
+                <div class="page-header">
+                    <h1><i class="fas fa-eye"></i> Watchlist</h1>
+                    <button class="btn btn-primary" onclick="showAddWatchlistModal()">
+                        <i class="fas fa-plus"></i> Add to Watchlist
+                    </button>
+                </div>
+                <div class="table-container">
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>Symbol</th>
+                                <th>Name</th>
+                                <th>Current Price</th>
+                                <th>Change</th>
+                                <th>Change %</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="watchlistBody">
+                            <tr><td colspan="6" class="empty-state">Your watchlist is empty.</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Alerts Page -->
+            <div id="page-alerts" class="page">
+                <div class="page-header">
+                    <h1><i class="fas fa-bell"></i> Price Alerts</h1>
+                    <button class="btn btn-primary" onclick="showAddAlertModal()">
+                        <i class="fas fa-plus"></i> New Alert
+                    </button>
+                </div>
+                <div id="alertsList" class="alerts-container">
+                    <p class="empty-state">No alerts set.</p>
+                </div>
+            </div>
+
+            <!-- News Page -->
+            <div id="page-news" class="page">
+                <div class="page-header">
+                    <h1><i class="fas fa-newspaper"></i> News</h1>
+                    <button class="btn btn-primary" onclick="fetchNews()">
+                        <i class="fas fa-sync-alt"></i> Fetch News
+                    </button>
+                </div>
+                <div class="news-filters">
+                    <select id="newsFilterStock" onchange="loadNews()">
+                        <option value="">All Stocks</option>
+                    </select>
+                    <select id="newsFilterStatus" onchange="loadNews()">
+                        <option value="">All</option>
+                        <option value="0">Unread</option>
+                        <option value="1">Read</option>
+                    </select>
+                </div>
+                <div id="newsList" class="news-container">
+                    <p class="empty-state">Click "Fetch News" to get the latest news.</p>
+                </div>
+            </div>
+
+            <!-- Analysis Page -->
+            <div id="page-analysis" class="page">
+                <div class="page-header">
+                    <h1><i class="fas fa-chart-pie"></i> Portfolio Analysis</h1>
+                </div>
+                <div class="two-columns">
+                    <div class="section">
+                        <h2>Allocation</h2>
+                        <canvas id="allocationChart"></canvas>
+                    </div>
+                    <div class="section">
+                        <h2>P&L by Stock</h2>
+                        <canvas id="pnlChart"></canvas>
+                    </div>
+                </div>
+                <div class="two-columns">
+                    <div class="section">
+                        <h2>Sector Allocation</h2>
+                        <canvas id="sectorChart"></canvas>
+                    </div>
+                    <div class="section">
+                        <h2>Correlation Matrix</h2>
+                        <canvas id="correlationChart"></canvas>
+                    </div>
+                </div>
+                <div class="section">
+                    <h2>Performance Breakdown</h2>
+                    <div class="table-container">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>Symbol</th>
+                                    <th>Qty</th>
+                                    <th>Avg Cost</th>
+                                    <th>Current Price</th>
+                                    <th>P&L %</th>
+                                    <th>Allocation</th>
+                                </tr>
+                            </thead>
+                            <tbody id="analysisBody">
+                                <tr><td colspan="6" class="empty-state">No data to analyze.</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <div class="section" style="margin-top: 20px;">
+                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                        <h2>Export &amp; Tools</h2>
+                        <button class="btn btn-sm btn-primary" onclick="exportPortfolioCSV()" title="Download portfolio CSV">
+                            <i class="fas fa-download"></i> Export CSV
+                        </button>
+                    </div>
+                </div>
+
+                <div class="section">
+                    <h2>Risk Metrics</h2>
+                    <div id="riskSummary" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin-bottom: 15px;">
+                        <div class="risk-card"><div class="risk-label">Sharpe Ratio</div><div class="risk-value" id="riskSharpe">-</div></div>
+                        <div class="risk-card"><div class="risk-label">Sortino Ratio</div><div class="risk-value" id="riskSortino">-</div></div>
+                        <div class="risk-card"><div class="risk-label">Max Drawdown</div><div class="risk-value" id="riskDrawdown">-</div></div>
+                        <div class="risk-card"><div class="risk-label">Ann. Volatility</div><div class="risk-value" id="riskVol">-</div></div>
+                        <div class="risk-card"><div class="risk-label">Daily VaR (95%)</div><div class="risk-value" id="riskVaR">-</div></div>
+                    </div>
+                    <h3 style="margin-top: 15px;">Per-Holding Risk</h3>
+                    <div class="table-container">
+                        <table class="data-table">
+                            <thead><tr><th>Symbol</th><th>Sharpe</th><th>Sortino</th><th>Max DD</th><th>Ann. Vol</th><th>Daily VaR</th><th>Value</th></tr></thead>
+                            <tbody id="riskTableBody"><tr><td colspan="7" class="empty-state">No risk data.</td></tr></tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <div class="two-columns">
+                    <div class="section">
+                        <h2>Beta vs S&amp;P 500</h2>
+                        <canvas id="betaChart"></canvas>
+                        <div class="table-container" style="margin-top: 15px;">
+                            <table class="data-table">
+                                <thead><tr><th>Symbol</th><th>Beta</th><th>Class</th><th>Alloc %</th></tr></thead>
+                                <tbody id="betaTableBody"><tr><td colspan="4" class="empty-state">No beta data.</td></tr></tbody>
+                            </table>
+                        </div>
+                    </div>
+                    <div class="section">
+                        <h2>Volatility Scanner</h2>
+                        <div class="table-container">
+                            <table class="data-table">
+                                <thead><tr><th>Symbol</th><th>Ann. Vol</th><th>ATR (14)</th><th>Bracket</th></tr></thead>
+                                <tbody id="volTableBody"><tr><td colspan="4" class="empty-state">No vol data.</td></tr></tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="section">
+                    <h2>Dividend Tracker</h2>
+                    <div id="dividendSummary" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; margin-bottom: 15px;">
+                        <div class="risk-card"><div class="risk-label">Total Annual Forecast</div><div class="risk-value" id="divForecast" style="font-size: 1.3em; font-weight: bold;">-</div></div>
+                        <div class="risk-card"><div class="risk-label">Dividend-Paying Holdings</div><div class="risk-value" id="divPayingCount">-</div></div>
+                        <div class="risk-card"><div class="risk-label">Avg Dividend Yield</div><div class="risk-value" id="divAvgYield">-</div></div>
+                    </div>
+                    <div class="table-container">
+                        <table class="data-table">
+                            <thead><tr><th>Symbol</th><th>Div Yield</th><th>Annual/Share</th><th>Qty</th><th>Annual Income</th></tr></thead>
+                            <tbody id="divTableBody"><tr><td colspan="5" class="empty-state">No dividend data.</td></tr></tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Settings Page -->
+            <div id="page-settings" class="page">
+                <div class="page-header">
+                    <h1><i class="fas fa-user-cog"></i> Account Settings</h1>
+                </div>
+                <div class="section">
+                    <h2><i class="fas fa-id-badge"></i> Account Profile</h2>
+                    <form id="usernameForm" onsubmit="saveUsername(event)" class="settings-form">
+                        <label>Username</label>
+                        <div class="settings-row">
+                            <input type="text" name="username" id="accountUsername" placeholder="Username" required>
+                            <span></span>
+                            <button type="submit" class="btn btn-primary">Save Username</button>
+                        </div>
+                    </form>
+                </div>
+                <div class="section">
+                    <h2><i class="fas fa-lock"></i> Change Password</h2>
+                    <form id="passwordForm" onsubmit="savePassword(event)" class="settings-form">
+                        <label>Current Password</label>
+                        <input type="password" name="current_password" placeholder="Current password" required>
+                        <label>New Password</label>
+                        <div class="settings-row">
+                            <input type="password" name="new_password" placeholder="New password" required minlength="4">
+                            <span></span>
+                            <button type="submit" class="btn btn-primary">Change Password</button>
+                        </div>
+                    </form>
+                </div>
+                <div class="section">
+                    <h2><i class="fas fa-key"></i> Market Data API</h2>
+                    <p class="settings-help">This Finnhub API key is saved only for the current account. Live quotes use Finnhub first; premium-only historical data still falls back to Yahoo/yfinance.</p>
+                    <form id="settingsForm" onsubmit="saveSettings(event)" class="settings-form">
+                        <label>Finnhub API Key</label>
+                        <div class="settings-row">
+                            <input type="password" name="finnhub_api_key" id="finnhubApiKey" placeholder="Paste your Finnhub API key">
+                            <button type="button" class="btn btn-secondary" onclick="toggleApiKeyVisibility()">Show</button>
+                            <button type="submit" class="btn btn-primary">Save Settings</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <div id="authGate" class="auth-gate">
+        <div class="auth-card">
+            <div class="logo auth-logo">
+                <i class="fas fa-chart-line"></i>
+                <span>Stock Monitor Pro</span>
+            </div>
+            <h1 id="authTitle">Sign in</h1>
+            <p class="auth-subtitle">Use your local account to keep holdings and API keys separate.</p>
+            <form id="authForm" onsubmit="submitAuth(event)">
+                <input type="text" name="username" placeholder="Username" autocomplete="username" required>
+                <input type="password" name="password" placeholder="Password" autocomplete="current-password" required>
+                <button type="submit" class="btn btn-primary" id="authSubmitBtn">Sign in</button>
+            </form>
+            <button type="button" class="auth-switch" onclick="toggleAuthMode()" id="authSwitchBtn">Create an account</button>
+            <p class="auth-hint">Existing data was moved to account <strong>default</strong> with password <strong>changeme</strong>.</p>
+        </div>
+    </div>
+
+    <!-- Add Holding Modal -->
+    <div id="addHoldingModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>Add Holding</h2>
+                <button class="modal-close" onclick="closeModal('addHoldingModal')">&times;</button>
+            </div>
+            <form id="addHoldingForm" onsubmit="submitHolding(event)">
+                <div class="form-group">
+                    <label>Symbol <small>(e.g., AAPL, MSFT, 0700.HK)</small></label>
+                    <input type="text" name="symbol" required placeholder="Enter stock symbol">
+                </div>
+                <div class="form-group">
+                    <label>Name</label>
+                    <input type="text" name="name" placeholder="Company name (optional)">
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Quantity</label>
+                        <input type="number" name="quantity" step="any" min="0" required placeholder="0">
+                    </div>
+                    <div class="form-group">
+                        <label>Average Cost</label>
+                        <input type="number" name="avg_cost" step="any" min="0" required placeholder="0.00">
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label>Currency</label>
+                    <select name="currency">
+                        <option value="USD">USD</option>
+                        <option value="CNY">CNY (???)</option>
+                        <option value="HKD">HKD (??)</option>
+                        <option value="JPY">JPY (??)</option>
+                        <option value="EUR">EUR (??)</option>
+                        <option value="GBP">GBP (??)</option>
+                    </select>
+                </div>
+                <div class="modal-actions">
+                    <button type="button" class="btn btn-secondary" onclick="closeModal('addHoldingModal')">Cancel</button>
+                    <button type="submit" class="btn btn-primary">Add Holding</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Add Watchlist Modal -->
+    <div id="addWatchlistModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>Add to Watchlist</h2>
+                <button class="modal-close" onclick="closeModal('addWatchlistModal')">&times;</button>
+            </div>
+            <form onsubmit="submitWatchlist(event)">
+                <div class="form-group">
+                    <label>Symbol</label>
+                    <input type="text" name="symbol" required placeholder="Enter stock symbol">
+                </div>
+                <div class="form-group">
+                    <label>Name</label>
+                    <input type="text" name="name" placeholder="Company name (optional)">
+                </div>
+                <div class="modal-actions">
+                    <button type="button" class="btn btn-secondary" onclick="closeModal('addWatchlistModal')">Cancel</button>
+                    <button type="submit" class="btn btn-primary">Add</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Add Alert Modal -->
+    <div id="addAlertModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>New Price Alert</h2>
+                <button class="modal-close" onclick="closeModal('addAlertModal')">&times;</button>
+            </div>
+            <form onsubmit="submitAlert(event)">
+                <div class="form-group">
+                    <label>Symbol</label>
+                    <select name="symbol" required>
+                        <option value="">Select a stock</option>
+                    </select>
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Condition</label>
+                        <select name="condition">
+                            <option value="above">Price goes ABOVE</option>
+                            <option value="below">Price goes BELOW</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>Target Price</label>
+                        <input type="number" name="target_price" step="any" min="0" required placeholder="0.00">
+                    </div>
+                </div>
+                <div class="modal-actions">
+                    <button type="button" class="btn btn-secondary" onclick="closeModal('addAlertModal')">Cancel</button>
+                    <button type="submit" class="btn btn-primary">Create Alert</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Stock Detail Modal -->
+    <div id="stockDetailModal" class="modal">
+        <div class="modal-content modal-large">
+            <div class="modal-header">
+                <h2 id="stockDetailTitle">Stock Details</h2>
+                <button class="modal-close" onclick="closeModal('stockDetailModal')">&times;</button>
+            </div>
+            <div id="stockDetailContent"></div>
+                <div id="stockDetailIndicators" style="display: none;">
+                    <h2 style="margin-top: 20px; border-top: 1px solid var(--border); padding-top: 15px;">Technical Indicators</h2>
+                    <div id="indicatorsSummary"></div>
+                    <canvas id="indicatorsChart" style="margin-top: 15px; max-height: 400px;"></canvas>
+                    <button id="toggleIndicatorsBtn" class="btn btn-sm btn-primary" style="margin-top: 10px;" onclick="toggleIndicators()">Show Indicators</button>
+                </div>
+        </div>
+    </div>
+
+    <script src="/static/js/app.js"></script>
+</body>
+</html>

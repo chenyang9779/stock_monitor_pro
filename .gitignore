@@ -1,0 +1,17 @@
+﻿# SQLite databases
+*.db
+*.sqlite
+stock_cache.sqlite
+stocks.db
+
+# Python
+.venv/
+venv/
+env/
+__pycache__/
+*.pyc
+*.pyo
+
+# OS
+.DS_Store
+Thumbs.db

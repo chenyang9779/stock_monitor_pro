@@ -1,0 +1,14 @@
+.git
+.venv
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.db
+*.sqlite
+stock_cache.sqlite
+html_lines.txt
+js_lines.txt
+services_lines.txt
+services_formatted.py
